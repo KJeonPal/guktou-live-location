@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>경전팔 국토대장정 실시간 위치</title>
+<meta name="description" content="인천에서 부산까지, 경전팔 국토대장정 실시간 위치와 이동 경로">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f2ec;
+    --card: rgba(255, 255, 255, 0.94);
+    --ink: #1c1b18;
+    --muted: #6b675e;
+    --line: #e2ded4;
+    --accent: #0fae6f;
+    --live: #e5352b;
+    --track-a: #0fae6f;
+    --track-b: #2f6fd6;
+    --shadow: 0 8px 28px rgba(28, 27, 24, 0.14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121311;
+      --card: rgba(26, 27, 24, 0.94);
+      --ink: #f1efe8;
+      --muted: #a29e93;
+      --line: #34352f;
+      --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Noto Sans KR", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #map { position: fixed; inset: 0; z-index: 0; }
+
+  .panel {
+    position: fixed;
+    z-index: 500;
+    left: 16px;
+    top: calc(16px + env(safe-area-inset-top));
+    width: min(380px, calc(100vw - 32px));
+    background: var(--card);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 16px 18px 14px;
+  }
+  .eyebrow {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; color: var(--muted); letter-spacing: 0.02em;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--line); color: var(--muted);
+  }
+  .badge.live { background: color-mix(in srgb, var(--live) 14%, transparent); color: var(--live); }
+  .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .badge.live .dot { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+
+  h1 { margin: 8px 0 2px; font-size: 20px; font-weight: 800; line-height: 1.3; }
+  .place { font-size: 15px; font-weight: 600; margin: 0; word-break: keep-all; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 10px; }
+  .stat { background: color-mix(in srgb, var(--line) 45%, transparent); border-radius: 12px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 17px; font-weight: 800; }
+  .stat span { font-size: 11px; color: var(--muted); }
+  .updated { font-size: 12px; color: var(--muted); margin: 0; }
+  .updated.stale { color: var(--live); font-weight: 600; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .btn {
+    flex: 1; text-align: center; text-decoration: none; cursor: pointer;
+    font: 600 13px "Noto Sans KR", sans-serif;
+    padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line);
+    background: transparent; color: var(--ink);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .toggle {
+    display: none; width: 100%; margin-top: 10px;
+    border: 0; background: transparent; color: var(--muted);
+    font: 600 12px "Noto Sans KR", sans-serif; cursor: pointer;
+  }
+  .empty { padding: 4px 0 2px; font-size: 14px; color: var(--muted); }
+
+  .me-marker {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); border: 3px solid #fff;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent), 0 2px 8px rgba(0,0,0,0.35);
+  }
+  .leaflet-container { font-family: "Noto Sans KR", sans-serif; background: var(--bg); }
+
+  @media (max-width: 520px) {
+    .panel {
+      top: auto; left: 12px; right: 12px; width: auto;
+      bottom: calc(12px + env(safe-area-inset-bottom));
+      padding: 14px 16px 10px;
+    }
+    h1 { font-size: 18px; }
+    .toggle { display: block; }
+    .panel.collapsed .more { display: none; }
+    .leaflet-bottom.leaflet-right { bottom: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<section class="panel" id="panel">
+  <div class="eyebrow">
+    <span>인천 → 부산 국토대장정</span>
+    <span class="badge" id="badge"><span class="dot"></span><span id="badgeText">불러오는 중</span></span>
+  </div>
+  <h1>경전팔 지금 여기!</h1>
+  <p class="place" id="place">위치 정보를 불러오는 중이에요…</p>
+  <div class="more">
+    <div class="stats">
+      <div class="stat"><b id="day">–</b><span>일차</span></div>
+      <div class="stat"><b id="today">–</b><span>오늘 거리</span></div>
+      <div class="stat"><b id="total">–</b><span>누적 거리</span></div>
+    </div>
+    <p class="updated" id="updated"></p>
+    <div class="actions">
+      <button class="btn" id="recenter" type="button">현재 위치로</button>
+      <a class="btn primary" href="https://chzzk.naver.com/44f5d42f679facdb9cbae0697f753561" target="_blank" rel="noopener">방송 보러 가기</a>
+    </div>
+  </div>
+  <button class="toggle" id="toggle" type="button">접기</button>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(() => {
+  const REPO = "KJeonPal/guktou-live-location";
+  const API_URL = `https://api.github.com/repos/${REPO}/contents/location.json?ref=data`;
+  const RAW_URL = `https://raw.githubusercontent.com/${REPO}/data/location.json`;
+  const REFRESH_MS = 60 * 1000;
+  const STALE_MIN = 20;
+
+  const $ = (id) => document.getElementById(id);
+  const map = L.map("map", { zoomControl: false, attributionControl: true }).setView([36.4, 127.6], 7);
+  L.control.zoom({ position: "topright" }).addTo(map);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
+
+  const css = getComputedStyle(document.documentElement);
+  const colors = [css.getPropertyValue("--track-a").trim(), css.getPropertyValue("--track-b").trim()];
+  const trackLayer = L.layerGroup().addTo(map);
+  const meIcon = L.divIcon({ className: "", html: '<div class="me-marker"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
+  let meMarker = null;
+  let etag = null;
+  let lastData = null;
+  let firstFit = true;
+  let userMoved = false;
+
+  map.on("dragstart zoomstart", (e) => { if (e.originalEvent || e.type === "dragstart") userMoved = true; });
+
+  function ago(sec) {
+    const m = Math.max(0, Math.round((Date.now() / 1000 - sec) / 60));
+    if (m < 1) return "방금 전";
+    if (m < 60) return `${m}분 전`;
+    const h = Math.floor(m / 60);
+    return h < 24 ? `${h}시간 ${m % 60}분 전` : `${Math.floor(h / 24)}일 전`;
+  }
+
+  function render(data) {
+    lastData = data;
+    const live = !!data.live;
+    $("badge").classList.toggle("live", live);
+    $("badgeText").textContent = live ? "방송 중" : "쉬는 중";
+    $("day").textContent = data.day_label ? data.day_label.replace("일차", "") : "–";
+    if (data.day_label && !/^\d+일차$/.test(data.day_label)) $("day").textContent = "준비";
+    $("today").textContent = data.today_km ? `${data.today_km}km` : "–";
+    $("total").textContent = data.total_km ? `${data.total_km}km` : "–";
+
+    trackLayer.clearLayers();
+    const all = [];
+    (data.tracks || []).forEach((t, i) => {
+      if (!t.points || t.points.length < 2) { (t.points || []).forEach((p) => all.push(p)); return; }
+      L.polyline(t.points, { color: colors[i % 2], weight: 5, opacity: 0.85, lineCap: "round" })
+        .bindTooltip(`${t.label} · ${t.km}km`, { sticky: true })
+        .addTo(trackLayer);
+      t.points.forEach((p) => all.push(p));
+    });
+
+    const cur = data.current;
+    if (cur) {
+      const ll = [cur.lat, cur.lon];
+      if (!meMarker) meMarker = L.marker(ll, { icon: meIcon, zIndexOffset: 1000 }).addTo(map);
+      else meMarker.setLatLng(ll);
+      meMarker.bindPopup(`<b>경전팔</b><br>${cur.place || ""}<br><small>${ago(cur.t)} 기준</small>`);
+      $("place").textContent = cur.place ? `📍 ${cur.place} 부근` : "📍 위치 확인 중";
+      updateTime();
+      if (firstFit) {
+        const panel = $("panel").getBoundingClientRect();
+        const mobile = window.innerWidth <= 520;
+        const pad = mobile
+          ? { paddingTopLeft: [40, 70], paddingBottomRight: [40, panel.height + 40] }
+          : { paddingTopLeft: [panel.width + 50, 50], paddingBottomRight: [60, 50] };
+        if (all.length > 1) map.fitBounds(L.latLngBounds(all.concat([ll])), { ...pad, maxZoom: 15 });
+        else map.setView(ll, 15);
+        firstFit = false;
+      } else if (!userMoved) {
+        map.panTo(ll);
+      }
+    } else {
+      $("place").textContent = "아직 공개된 위치가 없어요. 방송이 시작되면 표시돼요!";
+      $("updated").textContent = "";
+    }
+  }
+
+  function updateTime() {
+    if (!lastData || !lastData.current) return;
+    const el = $("updated");
+    const mins = (Date.now() / 1000 - lastData.current.t) / 60;
+    const delayNote = lastData.delay_min ? ` (안전을 위해 ${lastData.delay_min}분 늦게 표시)` : "";
+    if (mins > STALE_MIN && lastData.live) {
+      el.textContent = `마지막 위치 ${ago(lastData.current.t)} · 신호가 약한 구간일 수 있어요`;
+      el.classList.add("stale");
+    } else {
+      el.textContent = `마지막 위치 ${ago(lastData.current.t)}${delayNote} · 1분마다 자동 새로고침`;
+      el.classList.remove("stale");
+    }
+  }
+
+  async function load() {
+    try {
+      const headers = { Accept: "application/vnd.github.raw+json" };
+      if (etag) headers["If-None-Match"] = etag;
+      let res = await fetch(API_URL, { headers, cache: "no-store" });
+      if (res.status === 304) { updateTime(); return; }
+      if (!res.ok) res = await fetch(`${RAW_URL}?t=${Date.now()}`, { cache: "no-store" });
+      else etag = res.headers.get("ETag");
+      if (!res.ok) throw new Error(res.status);
+      render(await res.json());
+    } catch (e) {
+      if (!lastData) $("place").textContent = "아직 위치 데이터가 없어요. 첫 방송이 시작되면 표시돼요!";
+    }
+  }
+
+  $("recenter").addEventListener("click", () => {
+    userMoved = false;
+    if (meMarker) map.setView(meMarker.getLatLng(), Math.max(map.getZoom(), 15));
+  });
+  $("toggle").addEventListener("click", () => {
+    const p = $("panel");
+    p.classList.toggle("collapsed");
+    $("toggle").textContent = p.classList.contains("collapsed") ? "펼치기" : "접기";
+  });
+
+  load();
+  setInterval(load, REFRESH_MS);
+  setInterval(updateTime, 30 * 1000);
+})();
+</script>
+</body>
+</html>
