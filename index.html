@@ -17,8 +17,6 @@
     --line: #e2ded4;
     --accent: #0fae6f;
     --live: #e5352b;
-    --track-a: #0fae6f;
-    --track-b: #2f6fd6;
     --shadow: 0 8px 28px rgba(28, 27, 24, 0.14);
   }
   @media (prefers-color-scheme: dark) {
@@ -91,6 +89,19 @@
     font: 600 12px "Noto Sans KR", sans-serif; cursor: pointer;
   }
   .empty { padding: 4px 0 2px; font-size: 14px; color: var(--muted); }
+  .legend {
+    display: flex; gap: 6px; overflow-x: auto; margin: 0 0 10px; padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+  .legend:empty { display: none; }
+  .chip {
+    flex: none; display: inline-flex; align-items: center; gap: 6px;
+    font: 600 12px "Noto Sans KR", sans-serif; color: var(--ink);
+    padding: 5px 9px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent;
+  }
+  .chip i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .chip small { color: var(--muted); font-weight: 400; }
 
   .me-marker {
     width: 22px; height: 22px; border-radius: 50%;
@@ -128,6 +139,7 @@
       <div class="stat"><b id="today">–</b><span>오늘 거리</span></div>
       <div class="stat"><b id="total">–</b><span>누적 거리</span></div>
     </div>
+    <div class="legend" id="legend"></div>
     <p class="updated" id="updated"></p>
     <div class="actions">
       <button class="btn" id="recenter" type="button">현재 위치로</button>
@@ -154,8 +166,9 @@
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
 
-  const css = getComputedStyle(document.documentElement);
-  const colors = [css.getPropertyValue("--track-a").trim(), css.getPropertyValue("--track-b").trim()];
+  // 일차마다 다른 색: 색상환을 황금각(137.5°)씩 돌려서 20일이 넘어도 이웃한 날끼리 색이 확 달라지게
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const dayColor = (i) => `hsl(${Math.round((150 + i * 137.508) % 360)}, 72%, ${dark ? 58 : 44}%)`;
   const trackLayer = L.layerGroup().addTo(map);
   const meIcon = L.divIcon({ className: "", html: '<div class="me-marker"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
   let meMarker = null;
@@ -186,13 +199,30 @@
 
     trackLayer.clearLayers();
     const all = [];
+    const legend = $("legend");
+    legend.innerHTML = "";
     (data.tracks || []).forEach((t, i) => {
-      if (!t.points || t.points.length < 2) { (t.points || []).forEach((p) => all.push(p)); return; }
-      L.polyline(t.points, { color: colors[i % 2], weight: 5, opacity: 0.85, lineCap: "round" })
-        .bindTooltip(`${t.label} · ${t.km}km`, { sticky: true })
-        .addTo(trackLayer);
-      t.points.forEach((p) => all.push(p));
+      const color = dayColor(i);
+      const pts = t.points || [];
+      pts.forEach((p) => all.push(p));
+      if (pts.length >= 2) {
+        L.polyline(pts, { color, weight: 5, opacity: 0.9, lineCap: "round" })
+          .bindTooltip(`${t.label} · ${t.km}km`, { sticky: true })
+          .addTo(trackLayer);
+      }
+      if (!pts.length) return;
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.innerHTML = `<i style="background:${color}"></i>${t.label}<small>${t.km}km</small>`;
+      chip.addEventListener("click", () => {
+        userMoved = true;
+        if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
+        else map.setView(pts[0], 16);
+      });
+      legend.appendChild(chip);
     });
+    legend.scrollLeft = legend.scrollWidth;   // 최근 일차가 보이도록
 
     const cur = data.current;
     if (cur) {
